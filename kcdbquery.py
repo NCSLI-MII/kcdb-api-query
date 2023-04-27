@@ -10,10 +10,13 @@
 
 """
 
+import sys
 import requests
 import json
 import xmltodict
 import csv
+import argparse
+from pathlib import Path
 
 metro_areas = ["AUV", "EM", "L", "M", "PR", "T", "TF"]
 
@@ -27,12 +30,12 @@ headers = {
         'Content-type': 'application/json'
         }
 
-#curl -X 'GET' 'https://api-bipm.timsoft.com/api/kcdb/referenceData/analyte' -H 'accept:application/json':wq
+#curl -X 'GET' 'https://www.bipm.org/api/kcdb/referenceData/analyte' -H 'accept:application/json':wq
 
-api_ref = 'https://api-bipm.timsoft.com/api/kcdb/referenceData/analyte' 
-api_ref = 'https://api-bipm.timsoft.com/api/kcdb/referenceData' 
-api_search = 'https://api-bipm.timsoft.com/api/kcdb/searchData'
-api_quick = 'https://api-bipm.timsoft.com/api/kcdb/quickData'
+api_ref = 'https://www.bipm.org/api/kcdb/referenceData/analyte' 
+api_ref = 'https://www.bipm.org/api/kcdb/referenceData' 
+api_search = 'https://www.bipm.org/api/kcdb/searchData'
+api_quick = 'https://www.bipm.org/api/kcdb/quickData'
 
 
 
@@ -65,7 +68,7 @@ def getRequestExamples():
 
 
 
-    api_ref = 'https://api-bipm.timsoft.com/api/kcdb/cmc/searchData/quickSearch' 
+    api_ref = 'https://www.bipm.org/api/kcdb/cmc/searchData/quickSearch' 
     headers= {'accept': 'application/xml',
         'Content-Type': 'application/xml'}
     xml= """<?xml version="1.0" encoding="UTF-8"?>
@@ -90,7 +93,7 @@ def getRequestExamples():
 
     headers= {'accept': 'application/xml',
         'Content-Type': 'application/xml'}
-    api_ref = 'https://api-bipm.timsoft.com/api/kcdb/cmc/searchData/physics'
+    api_ref = 'https://www.bipm.org/api/kcdb/cmc/searchData/physics'
     xml = """<?xml version="1.0" encoding="UTF-8"?>
     <SearchCriteriaPhysics>
     <page>0</page>
@@ -140,9 +143,10 @@ def getRequestExamples():
 
 # Reference data
 
+
 def getRefDataPhysicsDisciplines():
     # Return reference data
-    api_ref = 'https://api-bipm.timsoft.com/api/kcdb/referenceData' 
+    api_ref = 'https://www.bipm.org/api/kcdb/referenceData' 
     headers = {'accept': 'application/json',
             'Content-Type': 'application/json'
             }
@@ -155,7 +159,7 @@ def getRefDataPhysicsDisciplines():
     return physics_areas
 
 def getRefDataQuantities():
-    api_ref = 'https://api-bipm.timsoft.com/api/kcdb/referenceData' 
+    api_ref = 'https://www.bipm.org/api/kcdb/referenceData' 
     headers = {'accept': 'application/json',
             'Content-Type': 'application/json'
             }
@@ -166,8 +170,42 @@ def getRefDataQuantities():
         quantities.append(q['value'])
     return quantities
 
-def getPhysicsCMCData(disciplines):
-    api_ref = 'https://api-bipm.timsoft.com/api/kcdb/cmc/searchData/physics'
+def getReferenceData(f_summary):
+    api_ref = 'https://www.bipm.org/api/kcdb/referenceData' 
+    headers = {'accept': 'application/json',
+            'Content-Type': 'application/json'
+            }
+    output = requests.get(f'{api_ref}/metrologyArea', headers=headers, params={"domainCode":"PHYSICS"})
+    
+    result = json.loads(output.content)
+    reference_data = {}
+
+    reference_data['physics_areas'] = []
+    f_summary.write("Physics areas\n")
+    for area in result["referenceData"]:
+        reference_data['physics_areas'].append(area["label"])
+        f_summary.write("%s\n" % area['label'])
+    
+    output = requests.get(f'{api_ref}/quantity', headers=headers)
+    result = json.loads(output.content)
+    reference_data['quantities'] = []
+    f_summary.write("Quantities\n")
+    for q in result["referenceData"]:
+        reference_data['quantities'].append(q['value'])
+        f_summary.write("%s\n" % q['value'])
+
+    output = requests.get(f'{api_ref}/nuclide', headers=headers)
+    result = json.loads(output.content)
+    reference_data['nuclides'] = []
+    f_summary.write("Nuclides\n")
+    for q in result["referenceData"]:
+        reference_data['nuclides'].append(q['value'])
+        f_summary.write("%s\n" % q['value'])
+    
+    return reference_data
+
+def getPhysicsCMCData(country_code, disciplines, output_dir, f_summary):
+    api_ref = 'https://www.bipm.org/api/kcdb/cmc/searchData/physics'
     headers = {'accept': 'application/json',
             'Content-Type': 'application/json'
             }
@@ -177,11 +215,13 @@ def getPhysicsCMCData(disciplines):
       "metrologyAreaLabel": None,
       "showTable": False,
       "countries": [
-        "CA",
+        country_code,
       ],
     }
     fields = None
     ntotal=0
+    print(f"Query CMCs for {disciplines}")
+
     for area in disciplines:
         data['metrologyAreaLabel'] = area
         print(f"Request CMC for {area}")
@@ -205,19 +245,116 @@ def getPhysicsCMCData(disciplines):
         ntotal+=nresults
         summary =f"Total records for {area}:{nresults}"
         print(summary)
+        f_summary.write(summary + '\n')    
         #print(fields)
-        fdomain = f'kcdb_cmc_{area}.csv'
-        with open(fdomain, 'w') as f:
+        fdomain = f'kcdb_cmc_{area}_{country_code}.csv'
+        path = output_dir / fdomain
+        with open(path, 'w') as f:
             writer = csv.DictWriter(f,fieldnames = fields)
             writer.writeheader()
             writer.writerows(results)
-    print(f'Total CMCs in Physics {disciplines}: {ntotal}')
-if __name__ == "__main__":
-    
-    physicsAreas = getRefDataPhysicsDisciplines()
-    quantities = getRefDataQuantities()
-    #print(physicsAreas)
-    #print(quantities)
+    summary = f'Total CMCs in Physics {disciplines}: {ntotal}'
+    print(summary)
+    f_summary.write(summary + '\n')    
 
-    getPhysicsCMCData(metro_areas)
+def getIonizingRadiationRefData():
+    api_ref = 'https://www.bipm.org/api/kcdb/referenceData' 
+    headers = {'accept': 'application/json',
+            'Content-Type': 'application/json'
+            }
+    output = requests.get(f'{api_ref}/nuclide', headers=headers)
+    result = json.loads(output.content)
+    quantities = []
+    for q in result["referenceData"]:
+        quantities.append(q['value'])
+    return quantities
+
+def getIonizingRadiationCMCData(country_code, output_dir, f_summary):
+    api_ref = 'https://www.bipm.org/api/kcdb/cmc/searchData/radiation'
+    headers = {'accept': 'application/json',
+            'Content-Type': 'application/json'
+            }
+    data = {
+      "page": 0,
+      "pageSize": 20,
+      "metrologyAreaLabel": 'RI',
+      "showTable": False,
+      "countries": [
+        country_code,
+      ],
+    }
+    fields = None
+    ntotal=0
+    print(f"Request CMC for RI")
+    f_summary.write(f"Request CMC for RI\n")
+    results=[]
+    data['page'] = 0
+    while True: 
+        print("Page", data['page'])
+        output = requests.post(f'{api_ref}',headers=headers,data=json.dumps(data))
+        #print(output.headers)
+        result = json.loads(output.content)
+        if len(result['data']) == 0:
+            break
+        #print(result['data'][0])
+        if data['page'] == 0:
+            fields = result['data'][0].keys()
+        current = len(result['data'])
+        #print(fields)
+        results += result['data']
+        data["page"] = data["page"]+1
+    nresults=len(results)
+    ntotal+=nresults
+    summary =f"Total records for RI:{nresults}"
+    print(summary)
+    f_summary.write(summary + '\n')    
+    #print(fields)
+    fdomain = f'kcdb_cmc_IR_{country_code}.csv'
+    path = output_dir / fdomain
+    with open(path, 'w') as f:
+        writer = csv.DictWriter(f,fieldnames = fields)
+        writer.writeheader()
+        writer.writerows(results)
+    print(f'Total CMCs in IR: {ntotal}')
+    f_summary.write(f'Total CMCs in IR: {ntotal}\n')    
+
+
+if __name__ == "__main__":
+   
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--path', help='Optional output path')
+    parser.add_argument('-a', '--areas', default=[], nargs='+', help='List of Physics Areas to query')
+    parser.add_argument('-r','--refonly', default=False, type=bool, help='Query reference data only')
+    parser.add_argument('--ir', default=False, type=bool, help='Query Ionizing Radiation CMCs')
+    parser.add_argument('--physics', default=False, type=bool, help='Query Physics CMCs')
+    parser.add_argument('--country', default='CA', type=str, help='Country Code')
+    args = parser.parse_args()
+   
+    if not args.path:
+        output_dir = Path().resolve()
+        print(f"Writing to current directory {output_dir.name}")
+    else:
+        output_dir = Path(args.path).resolve()
+        if not output_dir.exists():
+            output_dir.mkdir(parents=True, exist_ok=True)
+            print(f"Creating output directory {output_dir.name}")
+        print(f"Writing to directory {output_dir.name}")
+    f_summary = open(output_dir / 'kcdb_query_summary.txt', 'w')
+    reference_data = getReferenceData(f_summary)
+    print("Obtain CMCs for the following physics areas")
+    print(reference_data['physics_areas'])
+    
+    if args.refonly is True:
+        sys.exit(0)
+    if args.ir is True:
+        getIonizingRadiationCMCData(args.country, output_dir, f_summary)
+    if args.physics is True:
+        if len(args.areas) > 0:
+            print(f"Querying Physics CMCs for {args.areas}")
+            getPhysicsCMCData(args.country, args.areas, output_dir, f_summary)
+        else:
+            print(f"Querying Physics CMCs for all areas {reference_data['physics_areas']}")
+            getPhysicsCMCData(args.country, reference_data['physics_areas'], output_dir, f_summary)
+
+    f_summary.close()
     
