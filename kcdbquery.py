@@ -179,21 +179,56 @@ def getReferenceData(f_summary):
     
     result = json.loads(output.content)
     reference_data = {}
-
-    reference_data['physics_areas'] = []
+    service_classifications = []
+    service_classifications.append(['Id', 'Area Id', 'Area', 'Branch Id', 'Branch', 'Service', 'Subservice'])
+    reference_data['physics_areas'] = {}
+    reference_data['service_classification'] = {}
+    
     f_summary.write("Physics areas\n")
     for area in result["referenceData"]:
-        reference_data['physics_areas'].append(area["label"])
-        f_summary.write("%s\n" % area['label'])
-    
+        id_ = area['id']
+        reference_data['physics_areas'][area["label"]] = area['value']
+        f_summary.write("%s," % area['label'])
+        output_branch = requests.get(f'{api_ref}/branch?areaId={id_}', headers=headers)
+        result_branch = json.loads(output_branch.content)
+        print(area)
+        for branch in result_branch['referenceData']:
+            id_b = branch['id']
+            f_summary.write("%s, " % branch['label'])
+            output_service = requests.get(f'{api_ref}/service?branchId={id_b}', headers=headers)
+            result_service = json.loads(output_service.content)
+            
+            for service in result_service['referenceData']:
+                id_s = service['id']
+                f_summary.write("%s, " % service['value'])
+                output_subservice = requests.get(f'{api_ref}/subService?serviceId={id_s}', headers=headers)
+                result_subservice = json.loads(output_subservice.content)
+                
+                for subservice in result_subservice['referenceData']:
+                    f_summary.write("%s\n " % subservice['value'])
+                    id_c = ".".join([area['label'],branch['label'],service['label'],subservice['label']])
+                    reference_data['service_classification'][id_c] = [area['value'], branch['label'], branch['value'], service['value'], subservice['value']]
+                    service_classifications.append([id_c,area['label'], area['value'], branch['label'], branch['value'], service['value'], subservice['value']])
+        
+
+    with open('kcdb_service_classifications.csv','w', newline='') as fs:
+        writer = csv.writer(fs)
+        writer.writerows(service_classifications)
+
     output = requests.get(f'{api_ref}/quantity', headers=headers)
     result = json.loads(output.content)
     reference_data['quantities'] = []
     f_summary.write("Quantities\n")
     for q in result["referenceData"]:
+        print(q)
         reference_data['quantities'].append(q['value'])
         f_summary.write("%s\n" % q['value'])
-
+    
+    with open('kcdb_quantities.csv','w', newline='') as fs:
+        writer = csv.writer(fs)
+        for q in result["referenceData"]:
+            writer.writerow([q['value']])
+    
     output = requests.get(f'{api_ref}/nuclide', headers=headers)
     result = json.loads(output.content)
     reference_data['nuclides'] = []
@@ -341,8 +376,10 @@ if __name__ == "__main__":
         print(f"Writing to directory {output_dir.name}")
     f_summary = open(output_dir / 'kcdb_query_summary.txt', 'w')
     reference_data = getReferenceData(f_summary)
+    with open('kcdb_reference_data.json', 'w') as fp:
+        json.dump(reference_data, fp)
     print("Obtain CMCs for the following physics areas")
-    print(reference_data['physics_areas'])
+    #print(reference_data['physics_areas'])
     
     if args.refonly is True:
         sys.exit(0)
