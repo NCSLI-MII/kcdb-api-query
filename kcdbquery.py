@@ -180,7 +180,7 @@ def getReferenceData(f_summary):
     result = json.loads(output.content)
     reference_data = {}
     service_classifications = []
-    service_classifications.append(['Id', 'Area Id', 'Area', 'Branch Id', 'Branch', 'Service', 'Subservice'])
+    service_classifications.append(['Id', 'Area Id', 'Area', 'Branch Id', 'Branch', 'Service', 'Subservice', 'IndividualService'])
     reference_data['physics_areas'] = {}
     reference_data['service_classification'] = {}
     
@@ -206,9 +206,30 @@ def getReferenceData(f_summary):
                 
                 for subservice in result_subservice['referenceData']:
                     f_summary.write("%s\n " % subservice['value'])
-                    id_c = ".".join([area['label'],branch['label'],service['label'],subservice['label']])
-                    reference_data['service_classification'][id_c] = [area['value'], branch['label'], branch['value'], service['value'], subservice['value']]
-                    service_classifications.append([id_c,area['label'], area['value'], branch['label'], branch['value'], service['value'], subservice['value']])
+                    id_c = subservice['id']
+                    output_idvservice = requests.get(f'{api_ref}/individualService?subServiceId={id_c}', headers=headers)
+                    try:
+                        result_idvservice = json.loads(output_subservice.content)
+                    except requests.exceptions.JSONDecodeError:
+                        print("Invalid Subservice id")
+                        print(area['value'], branch['label'], branch['value'], service['label'], service['value'], subservice['label'],subservice['value'])
+                    
+                    for idvservice in result_idvservice['referenceData']:
+                        id_v = ".".join([area['label'],branch['label'],service['label'],subservice['label'], idvservice['label']])
+                        reference_data['service_classification'][id_v] = [area['value'], 
+                                branch['label'], 
+                                branch['value'], 
+                                service['value'], 
+                                subservice['value'], 
+                                idvservice['value']]
+                        service_classifications.append(
+                                [id_v,area['label'], 
+                                area['value'], 
+                                branch['label'], 
+                                branch['value'], 
+                                service['value'], 
+                                subservice['value'],
+                                idvservice['value']])
         
 
     with open('kcdb_service_classifications.csv','w', newline='') as fs:
@@ -220,7 +241,7 @@ def getReferenceData(f_summary):
     reference_data['quantities'] = []
     f_summary.write("Quantities\n")
     for q in result["referenceData"]:
-        print(q)
+        # print(q)
         reference_data['quantities'].append(q['value'])
         f_summary.write("%s\n" % q['value'])
     
